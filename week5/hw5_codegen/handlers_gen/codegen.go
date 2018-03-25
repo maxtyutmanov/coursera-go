@@ -120,33 +120,33 @@ var (
 	`))
 
 	handlerTpl = template.Must(template.New("handler").Parse(`
-		func (api *{{.ApiTypeName}}) handler{{.ApiMethodName}}(w http.ResponseWriter, r *http.Request) {
-			var err *ApiError
-			{{.CheckAuthBlock}}
-			deserializedParams, err := deserialize{{.ParamsTypeName}}(r)
-			if err != nil {
-				handleError(err, w)
-				return
-			}
-			result, err := api.{{.ApiMethodName}}(r.Context(), deserializedParams)
-			if err != nil {
-				handleError(err, w)
-				return
-			}
-			resultStr := json.Marshal(result)
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(resultStr)
+	func (api *{{.ApiTypeName}}) handler{{.ApiMethodName}}(w http.ResponseWriter, r *http.Request) {
+		var err *ApiError
+		{{.CheckAuthBlock}}
+		deserializedParams, err := deserialize{{.ParamsTypeName}}(r)
+		if err != nil {
+			handleError(err, w)
+			return
 		}
+		result, err := api.{{.ApiMethodName}}(r.Context(), deserializedParams)
+		if err != nil {
+			handleError(err, w)
+			return
+		}
+		resultStr := json.Marshal(result)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(resultStr)
+	}
 	`))
 
 	checkAuthenticationStr = `
-			// checking authentication
-			err = checkAuth(w, r)
-			if err != nil {
-				handleError(err, w)
-				return
-			}
-			deserializedParams := deserialize()
+		// checking authentication
+		err = checkAuth(w, r)
+		if err != nil {
+			handleError(err, w)
+			return
+		}
+		deserializedParams := deserialize()
 	`
 )
 
@@ -187,7 +187,7 @@ func getApiMethodInfo(fDecl *ast.FuncDecl) (apiTypeName string, methodName strin
 }
 
 func generateHandler(out io.Writer, fDecl *ast.FuncDecl, config apigenConfig) {
-	apiMethodName, apiTypeName, paramsTypeName := getApiMethodInfo(fDecl)
+	apiTypeName, apiMethodName, paramsTypeName := getApiMethodInfo(fDecl)
 
 	fmt.Printf("Generating handler for %s.%s(%s)\n", apiTypeName, apiMethodName, paramsTypeName)
 

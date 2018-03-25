@@ -77,73 +77,73 @@ import "strconv"
 	}
 
 
-		func (api *Profile) handlerMyApi(w http.ResponseWriter, r *http.Request) {
-			var err *ApiError
-			
-			deserializedParams, err := deserializeProfileParams(r)
-			if err != nil {
-				handleError(err, w)
-				return
-			}
-			result, err := api.MyApi(r.Context(), deserializedParams)
-			if err != nil {
-				handleError(err, w)
-				return
-			}
-			resultStr := json.Marshal(result)
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(resultStr)
+	func (api *MyApi) handlerProfile(w http.ResponseWriter, r *http.Request) {
+		var err *ApiError
+		
+		deserializedParams, err := deserializeProfileParams(r)
+		if err != nil {
+			handleError(err, w)
+			return
 		}
-	
-		func (api *Create) handlerMyApi(w http.ResponseWriter, r *http.Request) {
-			var err *ApiError
-			
-			// checking authentication
-			err = checkAuth(w, r)
-			if err != nil {
-				handleError(err, w)
-				return
-			}
-			deserializedParams := deserialize()
-	
-			deserializedParams, err := deserializeCreateParams(r)
-			if err != nil {
-				handleError(err, w)
-				return
-			}
-			result, err := api.MyApi(r.Context(), deserializedParams)
-			if err != nil {
-				handleError(err, w)
-				return
-			}
-			resultStr := json.Marshal(result)
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(resultStr)
+		result, err := api.Profile(r.Context(), deserializedParams)
+		if err != nil {
+			handleError(err, w)
+			return
 		}
+		resultStr := json.Marshal(result)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(resultStr)
+	}
 	
-		func (api *Create) handlerOtherApi(w http.ResponseWriter, r *http.Request) {
-			var err *ApiError
-			
-			// checking authentication
-			err = checkAuth(w, r)
-			if err != nil {
-				handleError(err, w)
-				return
-			}
-			deserializedParams := deserialize()
-	
-			deserializedParams, err := deserializeOtherCreateParams(r)
-			if err != nil {
-				handleError(err, w)
-				return
-			}
-			result, err := api.OtherApi(r.Context(), deserializedParams)
-			if err != nil {
-				handleError(err, w)
-				return
-			}
-			resultStr := json.Marshal(result)
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(resultStr)
+	func (api *MyApi) handlerCreate(w http.ResponseWriter, r *http.Request) {
+		var err *ApiError
+		
+		// checking authentication
+		err = checkAuth(w, r)
+		if err != nil {
+			handleError(err, w)
+			return
 		}
+		deserializedParams := deserialize()
+	
+		deserializedParams, err := deserializeCreateParams(r)
+		if err != nil {
+			handleError(err, w)
+			return
+		}
+		result, err := api.Create(r.Context(), deserializedParams)
+		if err != nil {
+			handleError(err, w)
+			return
+		}
+		resultStr := json.Marshal(result)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(resultStr)
+	}
+	
+	func (api *OtherApi) handlerCreate(w http.ResponseWriter, r *http.Request) {
+		var err *ApiError
+		
+		// checking authentication
+		err = checkAuth(w, r)
+		if err != nil {
+			handleError(err, w)
+			return
+		}
+		deserializedParams := deserialize()
+	
+		deserializedParams, err := deserializeOtherCreateParams(r)
+		if err != nil {
+			handleError(err, w)
+			return
+		}
+		result, err := api.Create(r.Context(), deserializedParams)
+		if err != nil {
+			handleError(err, w)
+			return
+		}
+		resultStr := json.Marshal(result)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(resultStr)
+	}
 	
