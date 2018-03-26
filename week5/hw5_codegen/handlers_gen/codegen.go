@@ -43,22 +43,42 @@ var (
 
 	helperFuncsSrc = `
 
-func checkAuth(w http.ResponseWriter, r *http.Request) *ApiError {
+type finalResponse struct {
+	Error string `+"`json:\"error\"`"+`
+	Response interface{} `+"`json:\"response,omitempty\"`"+`
+}
+
+func checkAuth(w http.ResponseWriter, r *http.Request) error {
 	if (r.Header.Get("X-Auth") != "100500") {
-		return &ApiError{http.StatusUnauthorized, fmt.Errorf("unauthorized")}
+		return ApiError{http.StatusForbidden, fmt.Errorf("unauthorized")}
 	}
 	return nil
 }
 
-func handleError(err *ApiError, w http.ResponseWriter) {
-	w.WriteHeader(err.HTTPStatus)
-	w.Write([]byte(err.Err.Error()))
+func handleError(err error, w http.ResponseWriter) {
+	apiError, isApiError := err.(ApiError)
+	var errorText string
+	var httpStatus int
+	if isApiError {
+		errorText = apiError.Err.Error()
+		httpStatus = apiError.HTTPStatus
+	} else {
+		errorText = err.Error()
+		httpStatus = http.StatusInternalServerError
+	}
+	resp := finalResponse{
+		Error: errorText,
+		Response: nil,
+	}
+	respText, _ := json.Marshal(resp)
+	w.WriteHeader(httpStatus)
+	w.Write([]byte(respText))
 }
 `
 
 	handlerTpl = template.Must(template.New("handler").Parse(`
 func (api *{{.ApiTypeName}}) handler{{.ApiMethodName}}(w http.ResponseWriter, r *http.Request) {
-	var err *ApiError
+	var err error
 	{{.CheckHttpMethodBlock}}
 	{{.CheckAuthBlock}}
 	deserializedParams, err := deserialize{{.ParamsTypeName}}(r)
@@ -71,9 +91,13 @@ func (api *{{.ApiTypeName}}) handler{{.ApiMethodName}}(w http.ResponseWriter, r 
 		handleError(err, w)
 		return
 	}
-	resultStr := json.Marshal(result)
+	resp := finalResponse{
+		Error: "",
+		Response: result,
+	}
+	respText, _ := json.Marshal(resp)
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(resultStr))
+	w.Write([]byte(respText))
 }
 `))
 
@@ -87,7 +111,7 @@ func (api *{{.ApiTypeName}}) handler{{.ApiMethodName}}(w http.ResponseWriter, r 
 `
 
 	deserializeModelTpl = template.Must(template.New("deserializeModel").Parse(`
-func deserialize{{.ModelTypeName}}(r *http.Request) ({{.ModelTypeName}}, *ApiError) {
+func deserialize{{.ModelTypeName}}(r *http.Request) ({{.ModelTypeName}}, error) {
 	model := {{.ModelTypeName}}{}
 	{{.DeserializeFieldsCode}}
 	return model, nil
@@ -126,7 +150,7 @@ func generateHandler(out io.Writer, fDecl *ast.FuncDecl, config apigenConfig) (
 		httpMethodCheck = `
 	// checking http method
 	if r.Method != "` + config.Method + `" {
-		handleError(&ApiError{http.StatusNotAcceptable,fmt.Errorf("bad method")})
+		handleError(ApiError{http.StatusNotAcceptable,fmt.Errorf("bad method")}, w)
 		return
 	}
 `
@@ -244,7 +268,11 @@ func generateFieldDeserializer(fieldName string, fieldType string, fieldMetaStr 
 	defaultVal, defaultValIsSet := tags["default"]
 	
 	fieldBuf.WriteString(`
-	valStr = r.FormValue("` + whereFrom +`")
+	if r.Method == "GET" {
+		valStr = r.URL.Query().Get("` + whereFrom + `")
+	} else {
+		valStr = r.FormValue("` + whereFrom +`")
+	}
 `)
 
 	if defaultValIsSet {
@@ -259,7 +287,7 @@ func generateFieldDeserializer(fieldName string, fieldType string, fieldMetaStr 
 	if isRequired {
 		fieldBuf.WriteString(`
 	if valStr == "" {
-		return nil, &ApiError{http.StatusBadRequest, fmt.Errorf("` + fieldName + ` must me not empty")}
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("` + whereFrom + ` must me not empty")}
 	}
 `)
 	}
@@ -280,8 +308,8 @@ func generateFieldDeserializer(fieldName string, fieldType string, fieldMetaStr 
 	case ` + commaSeparatedWithQuotes + `:
 		//ok!
 	default:
-		err := fmt.Errorf("` + fieldName + ` must be one of [` + commaSeparated + `]")
-		return nil, &ApiError{http.StatusBadRequest, err}
+		err := fmt.Errorf("` + whereFrom + ` must be one of [` + commaSeparated + `]")
+		return model, ApiError{http.StatusBadRequest, err}
 	}
 `)
 	}
@@ -292,7 +320,11 @@ func generateFieldDeserializer(fieldName string, fieldType string, fieldMetaStr 
 `)
 	} else if (fieldType == "int") {
 		fieldBuf.WriteString(`
-	model.` + fieldName + `, _ = strconv.Atoi(valStr)
+	var convErr error
+	model.` + fieldName + `, convErr = strconv.Atoi(valStr)
+	if convErr != nil {
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("` + whereFrom + ` must be int")}
+	}
 `)
 	}
 
@@ -300,14 +332,14 @@ func generateFieldDeserializer(fieldName string, fieldType string, fieldMetaStr 
 	if minValIsSet && fieldType == "string" {
 		fieldBuf.WriteString(`
 	if len(model.` + fieldName + `) < ` + minVal + ` {
-		return nil, &ApiError{http.StatusBadRequest, fmt.Errorf("` + fieldName + ` len must be >= ` + minVal + `")}
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("` + whereFrom + ` len must be >= ` + minVal + `")}
 	}
 `)
 	}
 	if minValIsSet && fieldType == "int" {
 		fieldBuf.WriteString(`
 	if model.` + fieldName + ` < ` + minVal + ` {
-		return nil, &ApiError{http.StatusBadRequest, fmt.Errorf("` + fieldName + ` must be >= ` + minVal + `")}
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("` + whereFrom + ` must be >= ` + minVal + `")}
 	}
 `)
 	}
@@ -316,14 +348,14 @@ func generateFieldDeserializer(fieldName string, fieldType string, fieldMetaStr 
 	if maxValIsSet && fieldType == "string" {
 		fieldBuf.WriteString(`
 	if len(model.` + fieldName + `) > ` + maxVal + ` {
-		return nil, &ApiError{http.StatusBadRequest, fmt.Errorf("` + fieldName + ` len must be <= ` + maxVal + `")}
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("` + whereFrom + ` len must be <= ` + maxVal + `")}
 	}
 `)
 	}
 	if maxValIsSet && fieldType == "int" {
 		fieldBuf.WriteString(`
 	if model.` + fieldName + ` > ` + maxVal + ` {
-		return nil, &ApiError{http.StatusBadRequest, fmt.Errorf("` + fieldName + ` must be <= ` + maxVal + `")}
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("` + whereFrom + ` must be <= ` + maxVal + `")}
 	}
 `)
 	}
@@ -343,7 +375,7 @@ func (h *` + apiTypeName + `) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 	fmt.Fprint(out, `
 	default:
-		handleError(&ApiError{http.StatusBadRequest, fmt.Errorf("unknown method")})`)
+		handleError(ApiError{http.StatusNotFound, fmt.Errorf("unknown method")}, w)`)
 
 	fmt.Fprint(out, `
 	}

@@ -7,21 +7,41 @@ import "encoding/json"
 
 
 
-func checkAuth(w http.ResponseWriter, r *http.Request) *ApiError {
+type finalResponse struct {
+	Error string `json:"error"`
+	Response interface{} `json:"response,omitempty"`
+}
+
+func checkAuth(w http.ResponseWriter, r *http.Request) error {
 	if (r.Header.Get("X-Auth") != "100500") {
-		return &ApiError{http.StatusUnauthorized, fmt.Errorf("unauthorized")}
+		return ApiError{http.StatusForbidden, fmt.Errorf("unauthorized")}
 	}
 	return nil
 }
 
-func handleError(err *ApiError, w http.ResponseWriter) {
-	w.WriteHeader(err.HTTPStatus)
-	w.Write([]byte(err.Err.Error()))
+func handleError(err error, w http.ResponseWriter) {
+	apiError, isApiError := err.(ApiError)
+	var errorText string
+	var httpStatus int
+	if isApiError {
+		errorText = apiError.Err.Error()
+		httpStatus = apiError.HTTPStatus
+	} else {
+		errorText = err.Error()
+		httpStatus = http.StatusInternalServerError
+	}
+	resp := finalResponse{
+		Error: errorText,
+		Response: nil,
+	}
+	respText, _ := json.Marshal(resp)
+	w.WriteHeader(httpStatus)
+	w.Write([]byte(respText))
 }
 
 
 func (api *MyApi) handlerProfile(w http.ResponseWriter, r *http.Request) {
-	var err *ApiError
+	var err error
 	
 	
 	deserializedParams, err := deserializeProfileParams(r)
@@ -34,17 +54,21 @@ func (api *MyApi) handlerProfile(w http.ResponseWriter, r *http.Request) {
 		handleError(err, w)
 		return
 	}
-	resultStr := json.Marshal(result)
+	resp := finalResponse{
+		Error: "",
+		Response: result,
+	}
+	respText, _ := json.Marshal(resp)
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(resultStr))
+	w.Write([]byte(respText))
 }
 
 func (api *MyApi) handlerCreate(w http.ResponseWriter, r *http.Request) {
-	var err *ApiError
+	var err error
 	
 	// checking http method
 	if r.Method != "POST" {
-		handleError(&ApiError{http.StatusNotAcceptable,fmt.Errorf("bad method")})
+		handleError(ApiError{http.StatusNotAcceptable,fmt.Errorf("bad method")}, w)
 		return
 	}
 
@@ -66,17 +90,21 @@ func (api *MyApi) handlerCreate(w http.ResponseWriter, r *http.Request) {
 		handleError(err, w)
 		return
 	}
-	resultStr := json.Marshal(result)
+	resp := finalResponse{
+		Error: "",
+		Response: result,
+	}
+	respText, _ := json.Marshal(resp)
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(resultStr))
+	w.Write([]byte(respText))
 }
 
 func (api *OtherApi) handlerCreate(w http.ResponseWriter, r *http.Request) {
-	var err *ApiError
+	var err error
 	
 	// checking http method
 	if r.Method != "POST" {
-		handleError(&ApiError{http.StatusNotAcceptable,fmt.Errorf("bad method")})
+		handleError(ApiError{http.StatusNotAcceptable,fmt.Errorf("bad method")}, w)
 		return
 	}
 
@@ -98,21 +126,29 @@ func (api *OtherApi) handlerCreate(w http.ResponseWriter, r *http.Request) {
 		handleError(err, w)
 		return
 	}
-	resultStr := json.Marshal(result)
+	resp := finalResponse{
+		Error: "",
+		Response: result,
+	}
+	respText, _ := json.Marshal(resp)
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(resultStr))
+	w.Write([]byte(respText))
 }
 //Deserializer for struct ProfileParams
 
-func deserializeProfileParams(r *http.Request) (ProfileParams, *ApiError) {
+func deserializeProfileParams(r *http.Request) (ProfileParams, error) {
 	model := ProfileParams{}
 	
 	var valStr string
 
-	valStr = r.FormValue("login")
+	if r.Method == "GET" {
+		valStr = r.URL.Query().Get("login")
+	} else {
+		valStr = r.FormValue("login")
+	}
 
 	if valStr == "" {
-		return nil, &ApiError{http.StatusBadRequest, fmt.Errorf("Login must me not empty")}
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("login must me not empty")}
 	}
 
 	model.Login = valStr
@@ -122,30 +158,42 @@ func deserializeProfileParams(r *http.Request) (ProfileParams, *ApiError) {
 }
 //Deserializer for struct CreateParams
 
-func deserializeCreateParams(r *http.Request) (CreateParams, *ApiError) {
+func deserializeCreateParams(r *http.Request) (CreateParams, error) {
 	model := CreateParams{}
 	
 	var valStr string
 
-	valStr = r.FormValue("login")
+	if r.Method == "GET" {
+		valStr = r.URL.Query().Get("login")
+	} else {
+		valStr = r.FormValue("login")
+	}
 
 	if valStr == "" {
-		return nil, &ApiError{http.StatusBadRequest, fmt.Errorf("Login must me not empty")}
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("login must me not empty")}
 	}
 
 	model.Login = valStr
 
 	if len(model.Login) < 10 {
-		return nil, &ApiError{http.StatusBadRequest, fmt.Errorf("Login len must be >= 10")}
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("login len must be >= 10")}
 	}
 
 
-	valStr = r.FormValue("full_name")
+	if r.Method == "GET" {
+		valStr = r.URL.Query().Get("full_name")
+	} else {
+		valStr = r.FormValue("full_name")
+	}
 
 	model.Name = valStr
 
 
-	valStr = r.FormValue("status")
+	if r.Method == "GET" {
+		valStr = r.URL.Query().Get("status")
+	} else {
+		valStr = r.FormValue("status")
+	}
 
 	
 	if valStr == "" {
@@ -156,23 +204,31 @@ func deserializeCreateParams(r *http.Request) (CreateParams, *ApiError) {
 	case "user", "moderator", "admin":
 		//ok!
 	default:
-		err := fmt.Errorf("Status must be one of [user, moderator, admin]")
-		return nil, &ApiError{http.StatusBadRequest, err}
+		err := fmt.Errorf("status must be one of [user, moderator, admin]")
+		return model, ApiError{http.StatusBadRequest, err}
 	}
 
 	model.Status = valStr
 
 
-	valStr = r.FormValue("age")
+	if r.Method == "GET" {
+		valStr = r.URL.Query().Get("age")
+	} else {
+		valStr = r.FormValue("age")
+	}
 
-	model.Age, _ = strconv.Atoi(valStr)
+	var convErr error
+	model.Age, convErr = strconv.Atoi(valStr)
+	if convErr != nil {
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("age must be int")}
+	}
 
 	if model.Age < 0 {
-		return nil, &ApiError{http.StatusBadRequest, fmt.Errorf("Age must be >= 0")}
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("age must be >= 0")}
 	}
 
 	if model.Age > 128 {
-		return nil, &ApiError{http.StatusBadRequest, fmt.Errorf("Age must be <= 128")}
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("age must be <= 128")}
 	}
 
 
@@ -180,30 +236,42 @@ func deserializeCreateParams(r *http.Request) (CreateParams, *ApiError) {
 }
 //Deserializer for struct OtherCreateParams
 
-func deserializeOtherCreateParams(r *http.Request) (OtherCreateParams, *ApiError) {
+func deserializeOtherCreateParams(r *http.Request) (OtherCreateParams, error) {
 	model := OtherCreateParams{}
 	
 	var valStr string
 
-	valStr = r.FormValue("username")
+	if r.Method == "GET" {
+		valStr = r.URL.Query().Get("username")
+	} else {
+		valStr = r.FormValue("username")
+	}
 
 	if valStr == "" {
-		return nil, &ApiError{http.StatusBadRequest, fmt.Errorf("Username must me not empty")}
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("username must me not empty")}
 	}
 
 	model.Username = valStr
 
 	if len(model.Username) < 3 {
-		return nil, &ApiError{http.StatusBadRequest, fmt.Errorf("Username len must be >= 3")}
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("username len must be >= 3")}
 	}
 
 
-	valStr = r.FormValue("account_name")
+	if r.Method == "GET" {
+		valStr = r.URL.Query().Get("account_name")
+	} else {
+		valStr = r.FormValue("account_name")
+	}
 
 	model.Name = valStr
 
 
-	valStr = r.FormValue("class")
+	if r.Method == "GET" {
+		valStr = r.URL.Query().Get("class")
+	} else {
+		valStr = r.FormValue("class")
+	}
 
 	
 	if valStr == "" {
@@ -214,23 +282,31 @@ func deserializeOtherCreateParams(r *http.Request) (OtherCreateParams, *ApiError
 	case "warrior", "sorcerer", "rouge":
 		//ok!
 	default:
-		err := fmt.Errorf("Class must be one of [warrior, sorcerer, rouge]")
-		return nil, &ApiError{http.StatusBadRequest, err}
+		err := fmt.Errorf("class must be one of [warrior, sorcerer, rouge]")
+		return model, ApiError{http.StatusBadRequest, err}
 	}
 
 	model.Class = valStr
 
 
-	valStr = r.FormValue("level")
+	if r.Method == "GET" {
+		valStr = r.URL.Query().Get("level")
+	} else {
+		valStr = r.FormValue("level")
+	}
 
-	model.Level, _ = strconv.Atoi(valStr)
+	var convErr error
+	model.Level, convErr = strconv.Atoi(valStr)
+	if convErr != nil {
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("level must be int")}
+	}
 
 	if model.Level < 1 {
-		return nil, &ApiError{http.StatusBadRequest, fmt.Errorf("Level must be >= 1")}
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("level must be >= 1")}
 	}
 
 	if model.Level > 50 {
-		return nil, &ApiError{http.StatusBadRequest, fmt.Errorf("Level must be <= 50")}
+		return model, ApiError{http.StatusBadRequest, fmt.Errorf("level must be <= 50")}
 	}
 
 
@@ -244,7 +320,7 @@ func (h *MyApi) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/user/create":
 		h.handlerCreate(w, r)
 	default:
-		handleError(&ApiError{http.StatusBadRequest, fmt.Errorf("unknown method")})
+		handleError(ApiError{http.StatusNotFound, fmt.Errorf("unknown method")}, w)
 	}
 }
 
@@ -253,6 +329,6 @@ func (h *OtherApi) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/user/create":
 		h.handlerCreate(w, r)
 	default:
-		handleError(&ApiError{http.StatusBadRequest, fmt.Errorf("unknown method")})
+		handleError(ApiError{http.StatusNotFound, fmt.Errorf("unknown method")}, w)
 	}
 }
